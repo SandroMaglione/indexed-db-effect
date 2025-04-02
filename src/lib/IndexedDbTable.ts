@@ -52,6 +52,37 @@ export declare namespace IndexedDbTable {
    * @category models
    */
   export type AnyWithProps = IndexedDbTable<string, Schema.Schema.AnyNoContext>;
+
+  /**
+   * @since 1.0.0
+   * @category models
+   */
+  export type TableName<Table extends Any> = Table extends IndexedDbTable<
+    infer _Name,
+    infer _Schema
+  >
+    ? _Name
+    : never;
+
+  /**
+   * @since 1.0.0
+   * @category models
+   */
+  export type TableSchema<Table extends Any> = Table extends IndexedDbTable<
+    infer _Name,
+    infer _Schema
+  >
+    ? _Schema
+    : never;
+
+  /**
+   * @since 1.0.0
+   * @category models
+   */
+  export type WithName<Table extends Any, TableName extends string> = Extract<
+    Table,
+    { readonly name: TableName }
+  >;
 }
 
 const Proto = {

@@ -39,6 +39,10 @@ export interface IndexedDb<
   add<A extends IndexedDbTable.IndexedDbTable.Any>(
     schema: A
   ): IndexedDb<Id, Tables | A>;
+
+  get<A extends IndexedDbTable.IndexedDbTable.TableName<Tables>>(
+    table: A
+  ): IndexedDbTable.IndexedDbTable.WithName<Tables, A>;
 }
 
 /**
@@ -122,7 +126,8 @@ export const myDb = make("db")
         age: Schema.Number,
       })
     )
-  );
+  )
+  .get("table2");
 
 // export const open = <
 //   const Tables extends Record<string, Schema.Schema.AnyNoContext>
