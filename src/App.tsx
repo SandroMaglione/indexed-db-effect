@@ -8,15 +8,27 @@ const main = IndexedDbQuery.insert(myDb, "table1", {
   age: 30,
 });
 
+const mainGet = IndexedDbQuery.getAll(myDb, "table1");
+
 function App() {
-  const [_, action] = useActionState<unknown>(
+  const [, action] = useActionState<unknown>(
     (_) => Effect.runPromise(main),
     null
   );
+  const [, actionGet] = useActionState<unknown>(
+    (_) => Effect.runPromise(mainGet),
+    null
+  );
   return (
-    <form action={action}>
-      <button type="submit">Submit</button>
-    </form>
+    <>
+      <form action={action}>
+        <button type="submit">Submit</button>
+      </form>
+
+      <form action={actionGet}>
+        <button type="submit">Get</button>
+      </form>
+    </>
   );
 }
 

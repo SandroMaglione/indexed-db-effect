@@ -40,7 +40,7 @@ export class IndexedDbQueryError extends TypeIdError(
   }
 }
 
-export const get = <
+export const getAll = <
   Source extends IndexedDb.IndexedDb.AnyWithProps,
   A extends IndexedDbTable.IndexedDbTable.TableName<
     IndexedDb.IndexedDb.Tables<Source>
@@ -56,15 +56,14 @@ export const get = <
         A
       >
     >
-  >,
+  >[],
   IndexedDbQueryError | IndexedDb.IndexedDbError
 > =>
   IndexedDb.open(indexedDb).pipe(
     Effect.flatMap((database) =>
       Effect.async<any, IndexedDbQueryError>((resume) => {
-        const transaction = database.transaction([table]);
-        const objectStore = transaction.objectStore(table);
-        const request = objectStore.get(table);
+        const objectStore = database.transaction([table]).objectStore(table);
+        const request = objectStore.getAll();
 
         request.onerror = (event) => {
           resume(
@@ -77,16 +76,22 @@ export const get = <
           );
         };
 
-        request.onsuccess = (_) => {
+        request.onsuccess = () => {
           resume(Effect.succeed(request.result));
         };
       })
     ),
     Effect.tap(console.log),
-    Effect.flatMap((data) =>
-      Schema.decodeUnknown(
+    Effect.flatMap((data) => {
+      const tableSchema = Schema.Array(
         indexedDb.tables.pipe(HashMap.unsafeGet(table), (_) => _.tableSchema)
-      )(data).pipe(
+      ) as unknown as IndexedDbTable.IndexedDbTable.TableSchema<
+        IndexedDbTable.IndexedDbTable.WithName<
+          IndexedDb.IndexedDb.Tables<Source>,
+          A
+        >
+      >;
+      return Schema.decodeUnknown(tableSchema)(data).pipe(
         Effect.mapError(
           (error) =>
             new IndexedDbQueryError({
@@ -94,8 +99,8 @@ export const get = <
               cause: error,
             })
         )
-      )
-    )
+      );
+    })
   );
 
 export const insert = <
