@@ -3,7 +3,7 @@ import { useActionState } from "react";
 import { IndexedDbQuery } from "./lib";
 import { myDb } from "./main";
 
-const main = IndexedDbQuery.get(myDb, "table1");
+const main = IndexedDbQuery.get(myDb, "table2");
 
 function App() {
   const [_, action] = useActionState<unknown>(

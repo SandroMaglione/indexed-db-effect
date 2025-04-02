@@ -4,9 +4,7 @@
  * @since 1.0.0
  */
 import { TypeIdError } from "@effect/platform/Error";
-import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as HashMap from "effect/HashMap";
 import { type Pipeable, pipeArguments } from "effect/Pipeable";
 import type * as IndexedDbTable from "./IndexedDbTable.js";
@@ -44,23 +42,6 @@ export interface IndexedDb<
     schema: A
   ): IndexedDb<Id, Tables | A>;
 }
-
-/**
- * @since 1.0.0
- * @category tags
- */
-export class IndexedDbApi extends Context.Tag(
-  "@effect/platform/IndexedDb/IndexedDbApi"
-)<
-  IndexedDbApi,
-  {
-    readonly database: globalThis.IDBDatabase;
-    readonly indexedDb: IndexedDb<
-      string,
-      IndexedDbTable.IndexedDbTable.AnyWithProps
-    >;
-  }
->() {}
 
 /**
  * @since 1.0.0
@@ -136,7 +117,9 @@ const Proto = {
     return makeProto({
       identifier: this.identifier,
       version: this.version,
-      tables: HashMap.empty().pipe(HashMap.set(table.name, table)),
+      tables: (this.tables as unknown as HashMap.HashMap<string, A>).pipe(
+        HashMap.set(table.tableName, table)
+      ),
     });
   },
 };
@@ -179,6 +162,7 @@ export const open = <Source extends IndexedDb.AnyWithProps>(
   indexedDb: Source
 ) =>
   Effect.async<globalThis.IDBDatabase, IndexedDbError>((resume) => {
+    console.log("Opening indexedDB", indexedDb.identifier, indexedDb.version);
     const request = window.indexedDB.open(
       indexedDb.identifier,
       indexedDb.version
@@ -199,59 +183,39 @@ export const open = <Source extends IndexedDb.AnyWithProps>(
 
     // If `onupgradeneeded` exits successfully, `onsuccess` will then be triggered
     request.onupgradeneeded = (event) => {
-      Effect.runPromiseExit(
-        Effect.gen(function* () {
-          const idbRequest = event.target as IDBRequest<IDBDatabase>;
-          const db = idbRequest.result;
-          yield* Effect.all(
-            HashMap.toValues(indexedDb.tables).map((indexedDbTable) =>
-              Effect.async<void, IndexedDbError>((resume) => {
-                const objectStore = db.createObjectStore(
-                  indexedDbTable.name,
-                  indexedDbTable.options
-                );
+      const idbRequest = event.target as IDBRequest<IDBDatabase>;
+      const db = idbRequest.result;
 
-                // TODO: add indexes
-                // for (const { name, keyPath, options } of indexes) {
-                //   objectStore.createIndex(name, keyPath, options);
-                // }
+      const tables = HashMap.toValues(indexedDb.tables);
+      for (const table of tables) {
+        console.log("Creating table", table.tableName);
+        const objectStore = db.createObjectStore(
+          table.tableName,
+          table.options
+        );
 
-                objectStore.transaction.onerror = (event) => {
-                  resume(
-                    Effect.fail(
-                      new IndexedDbError({
-                        reason: "TransactionError",
-                        cause: event,
-                      })
-                    )
-                  );
-                };
+        // TODO: add indexes
+        // for (const { name, keyPath, options } of indexes) {
+        //   objectStore.createIndex(name, keyPath, options);
+        // }
 
-                objectStore.transaction.oncomplete = (_) => {
-                  resume(Effect.void);
-                };
-              })
-            ),
-            { concurrency: "unbounded" }
-          );
-        })
-      ).then((exit) => {
-        if (!Exit.isSuccess(exit)) {
+        objectStore.transaction.onerror = (event) => {
           resume(
             Effect.fail(
               new IndexedDbError({
                 reason: "TransactionError",
-                cause: exit.cause,
+                cause: event,
               })
             )
           );
-        }
-      });
+        };
+      }
     };
 
     request.onsuccess = (event) => {
       const idbRequest = event.target as IDBRequest<IDBDatabase>;
       const database = idbRequest.result;
+      console.log("Database opened", database);
       resume(Effect.succeed(database));
     };
   });

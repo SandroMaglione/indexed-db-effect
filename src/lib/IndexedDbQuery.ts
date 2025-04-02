@@ -32,7 +32,7 @@ export class IndexedDbQueryError extends TypeIdError(
   ErrorTypeId,
   "IndexedDbQueryError"
 )<{
-  readonly reason: "TransactionError";
+  readonly reason: "TransactionError" | "DecodeError";
   readonly cause: unknown;
 }> {
   get message() {
@@ -82,6 +82,7 @@ export const get = <
         };
       })
     ),
+    Effect.tap(console.log),
     Effect.flatMap((data) =>
       Schema.decodeUnknown(
         indexedDb.tables.pipe(HashMap.unsafeGet(table), (_) => _.tableSchema)
@@ -89,7 +90,7 @@ export const get = <
         Effect.mapError(
           (error) =>
             new IndexedDbQueryError({
-              reason: "TransactionError",
+              reason: "DecodeError",
               cause: error,
             })
         )

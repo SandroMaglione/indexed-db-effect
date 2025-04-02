@@ -45,7 +45,7 @@ export declare namespace IndexedDbTable {
    */
   export interface Any {
     readonly [TypeId]: TypeId;
-    readonly name: string;
+    readonly tableName: string;
   }
 
   /**
