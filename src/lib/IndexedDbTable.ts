@@ -59,10 +59,10 @@ export declare namespace IndexedDbTable {
    * @category models
    */
   export type TableName<Table extends Any> = Table extends IndexedDbTable<
-    infer _Name,
+    infer _TableName,
     infer _Schema
   >
-    ? _Name
+    ? _TableName
     : never;
 
   /**
@@ -70,7 +70,7 @@ export declare namespace IndexedDbTable {
    * @category models
    */
   export type TableSchema<Table extends Any> = Table extends IndexedDbTable<
-    infer _Name,
+    infer _TableName,
     infer _Schema
   >
     ? _Schema
@@ -82,7 +82,7 @@ export declare namespace IndexedDbTable {
    */
   export type WithName<Table extends Any, TableName extends string> = Extract<
     Table,
-    { readonly name: TableName }
+    { readonly tableName: TableName }
   >;
 }
 
@@ -99,7 +99,9 @@ const makeProto = <
 >(options: {
   readonly tableName: TableName;
   readonly tableSchema: TableSchema;
-  readonly options: globalThis.IDBObjectStoreParameters;
+  readonly options: Partial<{
+    keyPath: keyof Schema.Schema.Encoded<TableSchema>;
+  }>;
 }): IndexedDbTable<TableName, TableSchema> => {
   function IndexedDbTable() {}
   Object.setPrototypeOf(IndexedDbTable, Proto);
@@ -119,6 +121,8 @@ export const make = <
 >(
   tableName: TableName,
   tableSchema: TableSchema,
-  options?: globalThis.IDBObjectStoreParameters
+  options?: {
+    keyPath: keyof Schema.Schema.Encoded<TableSchema>;
+  }
 ): IndexedDbTable<TableName, TableSchema> =>
   makeProto({ tableName, tableSchema, options: options ?? {} });

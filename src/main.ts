@@ -8,7 +8,10 @@ export const myDb = IndexedDb.make("db", 1)
       Schema.Struct({
         name: Schema.String,
         age: Schema.Number,
-      })
+      }),
+      {
+        keyPath: "name",
+      }
     )
   )
   .add(
@@ -17,6 +20,9 @@ export const myDb = IndexedDb.make("db", 1)
       Schema.Struct({
         name: Schema.String,
         age: Schema.Number,
-      })
+      }),
+      {
+        keyPath: "name",
+      }
     )
   );
