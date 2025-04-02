@@ -29,8 +29,9 @@ export interface IndexedDbTable<
   new (_: never): {};
 
   readonly [TypeId]: TypeId;
-  readonly name: TableName;
-  readonly schema: TableSchema;
+  readonly tableName: TableName;
+  readonly tableSchema: TableSchema;
+  readonly options?: globalThis.IDBObjectStoreParameters;
 }
 
 /**
@@ -96,13 +97,15 @@ const makeProto = <
   TableName extends string,
   TableSchema extends Schema.Schema.AnyNoContext
 >(options: {
-  readonly name: TableName;
-  readonly schema: TableSchema;
+  readonly tableName: TableName;
+  readonly tableSchema: TableSchema;
+  readonly options: globalThis.IDBObjectStoreParameters;
 }): IndexedDbTable<TableName, TableSchema> => {
   function IndexedDbTable() {}
   Object.setPrototypeOf(IndexedDbTable, Proto);
-  IndexedDbTable.name = options.name;
-  IndexedDbTable.schema = options.schema;
+  IndexedDbTable.tableName = options.tableName;
+  IndexedDbTable.tableSchema = options.tableSchema;
+  IndexedDbTable.options = options.options;
   return IndexedDbTable as any;
 };
 
@@ -111,9 +114,11 @@ const makeProto = <
  * @category constructors
  */
 export const make = <
-  Name extends string,
-  Schema extends Schema.Schema.AnyNoContext
+  TableName extends string,
+  TableSchema extends Schema.Schema.AnyNoContext
 >(
-  name: Name,
-  schema: Schema
-): IndexedDbTable<Name, Schema> => makeProto({ name, schema });
+  tableName: TableName,
+  tableSchema: TableSchema,
+  options?: globalThis.IDBObjectStoreParameters
+): IndexedDbTable<TableName, TableSchema> =>
+  makeProto({ tableName, tableSchema, options: options ?? {} });

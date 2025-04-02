@@ -4,10 +4,11 @@
  * @since 1.0.0
  */
 import { TypeIdError } from "@effect/platform/Error";
-import type * as IndexedDb from "./IndexedDb.js";
-import type * as IndexedDbTable from "./IndexedDbTable.js";
 import * as Effect from "effect/Effect";
+import * as HashMap from "effect/HashMap";
 import * as Schema from "effect/Schema";
+import * as IndexedDb from "./IndexedDb.js";
+import type * as IndexedDbTable from "./IndexedDbTable.js";
 
 /**
  * @since 1.0.0
@@ -27,8 +28,11 @@ export type ErrorTypeId = typeof ErrorTypeId;
  * @since 1.0.0
  * @category errors
  */
-export class IndexedDbError extends TypeIdError(ErrorTypeId, "IndexedDbError")<{
-  readonly reason: "OpenError" | "TransactionError";
+export class IndexedDbQueryError extends TypeIdError(
+  ErrorTypeId,
+  "IndexedDbQueryError"
+)<{
+  readonly reason: "TransactionError";
   readonly cause: unknown;
 }> {
   get message() {
@@ -52,91 +56,43 @@ export const get = <
         A
       >
     >
-  >
+  >,
+  IndexedDbQueryError | IndexedDb.IndexedDbError
 > =>
-  Effect.async<IndexedDb<Tables>, IndexedDbError>((resume) => {
-    const version = 1; // TODO: get version from API
-    const request = window.indexedDB.open(table, version);
+  IndexedDb.open(indexedDb).pipe(
+    Effect.flatMap((database) =>
+      Effect.async<any, IndexedDbQueryError>((resume) => {
+        const transaction = database.transaction([table]);
+        const objectStore = transaction.objectStore(table);
+        const request = objectStore.get(table);
 
-    request.onerror = (event) => {
-      const idbRequest = event.target as IDBRequest<IDBDatabase>;
+        request.onerror = (event) => {
+          resume(
+            Effect.fail(
+              new IndexedDbQueryError({
+                reason: "TransactionError",
+                cause: event,
+              })
+            )
+          );
+        };
 
-      resume(
-        Effect.fail(
-          new IndexedDbError({
-            reason: "OpenError",
-            cause: idbRequest.error,
-          })
-        )
-      );
-    };
-
-    // If `onupgradeneeded` exits successfully, `onsuccess` will then be triggered
-    request.onupgradeneeded = (event) => {
-      Effect.gen(function* () {
-        const idbRequest = event.target as IDBRequest<IDBDatabase>;
-        const db = idbRequest.result;
-        yield* Effect.all(
-          Object.entries(schema).map(([key, indexes]) =>
-            Effect.async<void, IndexedDbError>((resume) => {
-              const objectStore = db.createObjectStore(key, options);
-              for (const { name, keyPath, options } of indexes) {
-                objectStore.createIndex(name, keyPath, options);
-              }
-
-              objectStore.transaction.onerror = (event) => {
-                resume(
-                  Effect.fail(
-                    new IndexedDbError({
-                      reason: "TransactionError",
-                      cause: event,
-                    })
-                  )
-                );
-              };
-
-              objectStore.transaction.oncomplete = (_) => {
-                resume(Effect.void);
-              };
+        request.onsuccess = (_) => {
+          resume(Effect.succeed(request.result));
+        };
+      })
+    ),
+    Effect.flatMap((data) =>
+      Schema.decodeUnknown(
+        indexedDb.tables.pipe(HashMap.unsafeGet(table), (_) => _.tableSchema)
+      )(data).pipe(
+        Effect.mapError(
+          (error) =>
+            new IndexedDbQueryError({
+              reason: "TransactionError",
+              cause: error,
             })
-          ),
-          { concurrency: "unbounded" }
-        );
-      });
-    };
-
-    request.onsuccess = (event) => {
-      const idbRequest = event.target as IDBRequest<IDBDatabase>;
-      const db = idbRequest.result;
-
-      resume(
-        Effect.succeed<IndexedDb<Tables>>({
-          [TypeId]: TypeId,
-          get: (table) =>
-            Effect.async<Tables[typeof table]>((resume) => {
-              const transaction = db.transaction([table]);
-              const objectStore = transaction.objectStore(table);
-              const request = objectStore.get(key);
-
-              request.onerror = (event) => {
-                resume(
-                  Effect.fail(
-                    new IndexedDbError({
-                      reason: "TransactionError",
-                      cause: event,
-                    })
-                  )
-                );
-              };
-
-              request.onsuccess = (event) => {
-                // Do something with the request.result!
-                console.log(
-                  `Name for SSN 444-44-4444 is ${request.result.name}`
-                );
-              };
-            }),
-        })
-      );
-    };
-  }) as any;
+        )
+      )
+    )
+  );

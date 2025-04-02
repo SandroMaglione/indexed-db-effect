@@ -1,7 +1,7 @@
 import { Schema } from "effect";
-import { IndexedDb, IndexedDbQuery, IndexedDbTable } from "./lib";
+import { IndexedDb, IndexedDbTable } from "./lib";
 
-export const myDb = IndexedDb.make("db")
+export const myDb = IndexedDb.make("db", 1)
   .add(
     IndexedDbTable.make(
       "table1",
@@ -20,5 +20,3 @@ export const myDb = IndexedDb.make("db")
       })
     )
   );
-
-const table1 = IndexedDbQuery.get(myDb, "table1");
