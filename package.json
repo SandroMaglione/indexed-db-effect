@@ -10,8 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@effect/platform": "^0.80.4",
-    "effect": "^3.14.4",
+    "@effect/experimental": "^0.44.5",
+    "@effect/platform": "^0.80.5",
+    "effect": "^3.14.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

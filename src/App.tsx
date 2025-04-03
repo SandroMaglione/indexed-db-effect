@@ -1,14 +1,14 @@
 import { Effect } from "effect";
 import { useActionState } from "react";
 import { IndexedDbQuery } from "./lib";
-import { myDb } from "./main";
+import { MyDb } from "./main";
 
-const main = IndexedDbQuery.insert(myDb, "table1", {
+const main = IndexedDbQuery.insert(MyDb, "table1", {
   name: "John",
   age: 30,
 });
 
-const mainGet = IndexedDbQuery.getAll(myDb, "table1");
+const mainGet = IndexedDbQuery.getAll(MyDb, "table1");
 
 function App() {
   const [, action] = useActionState<unknown>(

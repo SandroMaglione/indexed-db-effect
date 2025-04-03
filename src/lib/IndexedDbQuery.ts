@@ -40,6 +40,51 @@ export class IndexedDbQueryError extends TypeIdError(
   }
 }
 
+export const insert = <
+  Source extends IndexedDb.IndexedDb.AnyWithProps,
+  A extends IndexedDbTable.IndexedDbTable.TableName<
+    IndexedDb.IndexedDb.Tables<Source>
+  >
+>(
+  indexedDb: Source,
+  table: A,
+  data: Schema.Schema.Encoded<
+    IndexedDbTable.IndexedDbTable.TableSchema<
+      IndexedDbTable.IndexedDbTable.WithName<
+        IndexedDb.IndexedDb.Tables<Source>,
+        A
+      >
+    >
+  >
+): Effect.Effect<
+  globalThis.IDBValidKey,
+  IndexedDbQueryError | IndexedDb.IndexedDbError
+> =>
+  IndexedDb.open(indexedDb).pipe(
+    Effect.flatMap((database) =>
+      Effect.async<globalThis.IDBValidKey, IndexedDbQueryError>((resume) => {
+        const transaction = database.transaction([table], "readwrite");
+        const objectStore = transaction.objectStore(table);
+        const request = objectStore.add(data);
+
+        request.onerror = (event) => {
+          resume(
+            Effect.fail(
+              new IndexedDbQueryError({
+                reason: "TransactionError",
+                cause: event,
+              })
+            )
+          );
+        };
+
+        request.onsuccess = (_) => {
+          resume(Effect.succeed(request.result));
+        };
+      })
+    )
+  );
+
 export const getAll = <
   Source extends IndexedDb.IndexedDb.AnyWithProps,
   A extends IndexedDbTable.IndexedDbTable.TableName<
@@ -101,49 +146,4 @@ export const getAll = <
         )
       );
     })
-  );
-
-export const insert = <
-  Source extends IndexedDb.IndexedDb.AnyWithProps,
-  A extends IndexedDbTable.IndexedDbTable.TableName<
-    IndexedDb.IndexedDb.Tables<Source>
-  >
->(
-  indexedDb: Source,
-  table: A,
-  data: Schema.Schema.Encoded<
-    IndexedDbTable.IndexedDbTable.TableSchema<
-      IndexedDbTable.IndexedDbTable.WithName<
-        IndexedDb.IndexedDb.Tables<Source>,
-        A
-      >
-    >
-  >
-): Effect.Effect<
-  globalThis.IDBValidKey,
-  IndexedDbQueryError | IndexedDb.IndexedDbError
-> =>
-  IndexedDb.open(indexedDb).pipe(
-    Effect.flatMap((database) =>
-      Effect.async<globalThis.IDBValidKey, IndexedDbQueryError>((resume) => {
-        const transaction = database.transaction([table], "readwrite");
-        const objectStore = transaction.objectStore(table);
-        const request = objectStore.add(data);
-
-        request.onerror = (event) => {
-          resume(
-            Effect.fail(
-              new IndexedDbQueryError({
-                reason: "TransactionError",
-                cause: event,
-              })
-            )
-          );
-        };
-
-        request.onsuccess = (_) => {
-          resume(Effect.succeed(request.result));
-        };
-      })
-    )
   );

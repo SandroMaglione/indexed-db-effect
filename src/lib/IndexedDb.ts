@@ -62,7 +62,7 @@ export type ErrorTypeId = typeof ErrorTypeId;
  * @category errors
  */
 export class IndexedDbError extends TypeIdError(ErrorTypeId, "IndexedDbError")<{
-  readonly reason: "OpenError" | "TransactionError";
+  readonly reason: "OpenError" | "TransactionError" | "Blocked";
   readonly cause: unknown;
 }> {
   get message() {
@@ -178,6 +178,12 @@ export const open = <Source extends IndexedDb.AnyWithProps>(
             cause: idbRequest.error,
           })
         )
+      );
+    };
+
+    request.onblocked = (event) => {
+      resume(
+        Effect.fail(new IndexedDbError({ reason: "Blocked", cause: event }))
       );
     };
 
