@@ -88,6 +88,7 @@ const layer = IndexedDbQuery.layer.pipe(
     IndexedDb.layer({
       identifier: "db",
       version: 1,
+      source: CurrentDb,
     })
   )
 );

@@ -7,7 +7,9 @@ import { TypeIdError } from "@effect/platform/Error";
 import { Layer } from "effect";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as HashMap from "effect/HashMap";
 import { pipeArguments } from "effect/Pipeable";
+import type * as IndexedDbVersion from "./IndexedDbVersion.js";
 
 /**
  * @since 1.0.0
@@ -147,12 +149,17 @@ const makeProto = <Id extends string>(options: {
  * @since 1.0.0
  * @category constructors
  */
-export const layer = <Id extends string>({
+export const layer = <
+  Id extends string,
+  Source extends IndexedDbVersion.IndexedDbVersion.AnyWithProps
+>({
   identifier,
   version,
+  source,
 }: {
   identifier: Id;
   version: number;
+  source: Source;
 }) =>
   Layer.effect(
     IndexedDb,
@@ -184,9 +191,28 @@ export const layer = <Id extends string>({
         };
 
         // If `onupgradeneeded` exits successfully, `onsuccess` will then be triggered
-        request.onupgradeneeded = (_) => {
-          // const idbRequest = event.target as IDBRequest<IDBDatabase>;
-          // const _ = idbRequest.result;
+        request.onupgradeneeded = (event) => {
+          const idbRequest = event.target as IDBRequest<IDBDatabase>;
+          const database = idbRequest.result;
+          const tables = HashMap.toValues(source.tables);
+
+          for (const table of tables) {
+            const request = database.createObjectStore(
+              table.tableName,
+              table.options
+            );
+
+            request.transaction.onerror = (event) => {
+              resume(
+                Effect.fail(
+                  new IndexedDbError({
+                    reason: "TransactionError",
+                    cause: event,
+                  })
+                )
+              );
+            };
+          }
         };
 
         request.onsuccess = (event) => {
