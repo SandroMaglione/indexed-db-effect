@@ -4,10 +4,10 @@
  * @since 1.0.0
  */
 import { TypeIdError } from "@effect/platform/Error";
+import { Layer } from "effect";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as HashMap from "effect/HashMap";
-import { type Pipeable, pipeArguments } from "effect/Pipeable";
-import type * as IndexedDbTable from "./IndexedDbTable.js";
+import { pipeArguments } from "effect/Pipeable";
 
 /**
  * @since 1.0.0
@@ -22,26 +22,6 @@ export const TypeId: unique symbol = Symbol.for(
  * @category type ids
  */
 export type TypeId = typeof TypeId;
-
-/**
- * @since 1.0.0
- * @category interface
- */
-export interface IndexedDb<
-  out Id extends string,
-  out Tables extends IndexedDbTable.IndexedDbTable.Any = never
-> extends Pipeable {
-  new (_: never): {};
-
-  readonly [TypeId]: TypeId;
-  readonly identifier: Id;
-  readonly version: number;
-  readonly tables: HashMap.HashMap<string, Tables>;
-
-  add<A extends IndexedDbTable.IndexedDbTable.Any>(
-    schema: A
-  ): IndexedDb<Id, Tables | A>;
-}
 
 /**
  * @since 1.0.0
@@ -72,9 +52,61 @@ export class IndexedDbError extends TypeIdError(ErrorTypeId, "IndexedDbError")<{
 
 /**
  * @since 1.0.0
+ * @category tags
+ */
+export class IndexedDb extends Context.Tag(
+  "@effect/platform-browser/IndexedDb"
+)<IndexedDb, IndexedDb.AnyWithProps>() {}
+
+/**
+ * @since 1.0.0
  * @category models
  */
 export declare namespace IndexedDb {
+  /**
+   * @since 1.0.0
+   * @category model
+   */
+  export interface Service<out Id extends string = string> {
+    new (_: never): {};
+    readonly [TypeId]: TypeId;
+    readonly identifier: Id;
+    readonly version: number;
+    readonly database: IDBDatabase;
+  }
+
+  // export interface Service<
+  //   out Id extends string,
+  //   in out DbVersion extends IndexedDbVersion.IndexedDbVersion.Any = never,
+  //   InitError = never
+  // > extends Pipeable {
+  //   new (_: never): {};
+
+  //   readonly [TypeId]: TypeId;
+  //   readonly identifier: Id;
+  //   readonly version: number;
+  //   readonly dbVersion: DbVersion;
+  //   readonly init: <R = never>(
+  //     db: DbVersion
+  //   ) => Effect.Effect<void, InitError, R>;
+  //   readonly migrations: [
+  //     version: number,
+  //     migration: <E, R = never>(
+  //       from: IndexedDbVersion.IndexedDbVersion.Any,
+  //       to: IndexedDbVersion.IndexedDbVersion.Any
+  //     ) => Effect.Effect<void, E, R>
+  //   ][];
+
+  //   readonly addVersion: <V1 extends DbVersion, V2 extends DbVersion, E>(
+  //     version: number,
+  //     options: {
+  //       from: V1;
+  //       to: V2;
+  //       migration: (from: V1, to: V2) => Effect.Effect<void, E>;
+  //     }
+  //   ) => IndexedDb.Service<Id, V2>;
+  // }
+
   /**
    * @since 1.0.0
    * @category models
@@ -88,21 +120,7 @@ export declare namespace IndexedDb {
    * @since 1.0.0
    * @category models
    */
-  export type AnyWithProps = IndexedDb<
-    string,
-    IndexedDbTable.IndexedDbTable.AnyWithProps
-  >;
-
-  /**
-   * @since 1.0.0
-   * @category models
-   */
-  export type Tables<Db extends Any> = Db extends IndexedDb<
-    infer _Id,
-    infer _Tables
-  >
-    ? _Tables
-    : never;
+  export type AnyWithProps = IndexedDb.Service;
 }
 
 const Proto = {
@@ -110,33 +128,18 @@ const Proto = {
   pipe() {
     return pipeArguments(this, arguments);
   },
-  add<A extends IndexedDbTable.IndexedDbTable.Any>(
-    this: IndexedDb.AnyWithProps,
-    table: A
-  ) {
-    return makeProto({
-      identifier: this.identifier,
-      version: this.version,
-      tables: (this.tables as unknown as HashMap.HashMap<string, A>).pipe(
-        HashMap.set(table.tableName, table)
-      ),
-    });
-  },
 };
 
-const makeProto = <
-  Id extends string,
-  Tables extends IndexedDbTable.IndexedDbTable.Any
->(options: {
+const makeProto = <Id extends string>(options: {
   readonly identifier: Id;
   readonly version: number;
-  readonly tables: HashMap.HashMap<string, Tables>;
-}): IndexedDb<Id, Tables> => {
+  readonly database: globalThis.IDBDatabase;
+}): IndexedDb.Service<Id> => {
   function IndexedDb() {}
   Object.setPrototypeOf(IndexedDb, Proto);
   IndexedDb.identifier = options.identifier;
   IndexedDb.version = options.version;
-  IndexedDb.tables = options.tables;
+  IndexedDb.database = options.database;
   return IndexedDb as any;
 };
 
@@ -144,84 +147,56 @@ const makeProto = <
  * @since 1.0.0
  * @category constructors
  */
-export const make = <const Id extends string>(
-  identifier: Id,
-  version: number
-): IndexedDb<Id> =>
-  makeProto({
-    identifier,
-    version,
-    tables: HashMap.empty(),
-  });
+export const layer = <Id extends string>({
+  identifier,
+  version,
+}: {
+  identifier: Id;
+  version: number;
+}) =>
+  Layer.effect(
+    IndexedDb,
+    Effect.gen(function* () {
+      const database = yield* Effect.async<
+        globalThis.IDBDatabase,
+        IndexedDbError
+      >((resume) => {
+        console.log("Opening indexedDB", identifier, version);
+        const request = window.indexedDB.open(identifier, version);
 
-/**
- * @since 1.0.0
- * @category constructors
- */
-export const open = <Source extends IndexedDb.AnyWithProps>(
-  indexedDb: Source
-) =>
-  Effect.async<globalThis.IDBDatabase, IndexedDbError>((resume) => {
-    console.log("Opening indexedDB", indexedDb.identifier, indexedDb.version);
-    const request = window.indexedDB.open(
-      indexedDb.identifier,
-      indexedDb.version
-    );
+        request.onerror = (event) => {
+          const idbRequest = event.target as IDBRequest<IDBDatabase>;
 
-    request.onerror = (event) => {
-      const idbRequest = event.target as IDBRequest<IDBDatabase>;
-
-      resume(
-        Effect.fail(
-          new IndexedDbError({
-            reason: "OpenError",
-            cause: idbRequest.error,
-          })
-        )
-      );
-    };
-
-    request.onblocked = (event) => {
-      resume(
-        Effect.fail(new IndexedDbError({ reason: "Blocked", cause: event }))
-      );
-    };
-
-    // If `onupgradeneeded` exits successfully, `onsuccess` will then be triggered
-    request.onupgradeneeded = (event) => {
-      const idbRequest = event.target as IDBRequest<IDBDatabase>;
-      const db = idbRequest.result;
-
-      const tables = HashMap.toValues(indexedDb.tables);
-      for (const table of tables) {
-        console.log("Creating table", table.tableName);
-        const objectStore = db.createObjectStore(
-          table.tableName,
-          table.options
-        );
-
-        // TODO: add indexes
-        // for (const { name, keyPath, options } of indexes) {
-        //   objectStore.createIndex(name, keyPath, options);
-        // }
-
-        objectStore.transaction.onerror = (event) => {
           resume(
             Effect.fail(
               new IndexedDbError({
-                reason: "TransactionError",
-                cause: event,
+                reason: "OpenError",
+                cause: idbRequest.error,
               })
             )
           );
         };
-      }
-    };
 
-    request.onsuccess = (event) => {
-      const idbRequest = event.target as IDBRequest<IDBDatabase>;
-      const database = idbRequest.result;
-      console.log("Database opened", database);
-      resume(Effect.succeed(database));
-    };
-  });
+        request.onblocked = (event) => {
+          resume(
+            Effect.fail(new IndexedDbError({ reason: "Blocked", cause: event }))
+          );
+        };
+
+        // If `onupgradeneeded` exits successfully, `onsuccess` will then be triggered
+        request.onupgradeneeded = (_) => {
+          // const idbRequest = event.target as IDBRequest<IDBDatabase>;
+          // const _ = idbRequest.result;
+        };
+
+        request.onsuccess = (event) => {
+          const idbRequest = event.target as IDBRequest<IDBDatabase>;
+          const database = idbRequest.result;
+          console.log("Database opened", database);
+          resume(Effect.succeed(database));
+        };
+      });
+
+      return makeProto({ identifier, version, database });
+    })
+  );
