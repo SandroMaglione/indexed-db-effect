@@ -1,6 +1,7 @@
 import { Effect, Layer, Schema } from "effect";
 import {
   IndexedDb,
+  IndexedDbMigration,
   IndexedDbQuery,
   IndexedDbTable,
   IndexedDbVersion,
@@ -46,59 +47,38 @@ const Table2_2 = IndexedDbTable.make(
   { keyPath: "nameAndAge" }
 );
 
-// `version` may be older, only changed when ready to upgrade
 const CurrentDb = IndexedDbVersion.make(Table1, Table2_2);
 
-// export const MyDb = IndexedDb.makeWith("db", 1, CurrentDb, (db) =>
-//   Effect.gen(function* () {
-//     // yield* IndexedDbQuery.create(db, "table1");
-//     // yield* IndexedDbQuery.create(db, "table2");
+const Migration1 = IndexedDbMigration.make({
+  fromVersion: IndexedDbVersion.makeEmpty,
+  toVersion: CurrentDb,
+  execute: (_, toQuery) =>
+    Effect.gen(function* () {
+      yield* toQuery.createObjectStore("table1");
+      yield* toQuery.createObjectStore("table2");
+      // yield* toQuery.insert("table1", { id: "1", value: 1 });
+    }),
+});
 
-//     yield* IndexedDbQuery.insertAll(db, "table1", [
-//       { id: "1", value: 1 },
-//       { id: "2", value: 2 },
-//     ]);
-
-//     yield* IndexedDbQuery.insertAll(db, "table2", [
-//       { name: "John", age: 30 },
-//       { name: "Jane", age: 25 },
-//     ]);
-//   })
-// );
-// .addVersion(2, {
-//   from: CurrentDb,
-//   to: CurrentDb2,
-//   migration: (from, to) =>
-//     Effect.gen(function* () {
-//       const table2 = yield* IndexedDbQuery.getAll(from, "table2");
-//       yield* IndexedDbQuery.deleteTable(from, "table2");
-//       yield* IndexedDbQuery.create(to, "table2");
-//       yield* IndexedDbQuery.insertAll(
-//         to,
-//         "table2",
-//         table2.map((data) => ({
-//           nameAndAge: `${data.name} ${data.age}`,
-//         }))
-//       );
-//     }),
-// });
+const Migration2 = IndexedDbMigration.make({
+  fromVersion: CurrentDb,
+  toVersion: CurrentDb,
+  execute: (_, toQuery) =>
+    Effect.gen(function* () {
+      yield* toQuery.deleteObjectStore("table2");
+    }),
+});
 
 const layer = IndexedDbQuery.layer.pipe(
-  Layer.provide(
-    IndexedDb.layer({
-      identifier: "db",
-      version: 1,
-      source: CurrentDb,
-    })
-  )
+  Layer.provide(IndexedDb.layer("db", Migration1, Migration2))
 );
 
 export const main = Effect.gen(function* () {
   const { makeApi } = yield* IndexedDbQuery.IndexedDbApi;
-  const api = makeApi<typeof CurrentDb>();
+  const api = makeApi(CurrentDb);
   const key = yield* api.insert("table1", {
-    id: "1",
-    value: 1,
+    id: "2",
+    value: 2,
   });
   yield* Effect.log(key);
 }).pipe(Effect.provide(layer));

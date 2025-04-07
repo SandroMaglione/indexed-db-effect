@@ -3,7 +3,6 @@
  *
  * @since 1.0.0
  */
-import { TypeIdError } from "@effect/platform/Error";
 import * as HashMap from "effect/HashMap";
 import { type Pipeable, pipeArguments } from "effect/Pipeable";
 import type * as IndexedDbTable from "./IndexedDbTable.js";
@@ -33,36 +32,6 @@ export interface IndexedDbVersion<
 
   readonly [TypeId]: TypeId;
   readonly tables: HashMap.HashMap<string, Tables>;
-}
-
-/**
- * @since 1.0.0
- * @category type ids
- */
-export const ErrorTypeId: unique symbol = Symbol.for(
-  "@effect/platform-browser/IndexedDbVersion/IndexedDbVersionError"
-);
-
-/**
- * @since 1.0.0
- * @category type ids
- */
-export type ErrorTypeId = typeof ErrorTypeId;
-
-/**
- * @since 1.0.0
- * @category errors
- */
-export class IndexedDbVersionError extends TypeIdError(
-  ErrorTypeId,
-  "IndexedDbVersionError"
-)<{
-  readonly reason: "OpenError" | "TransactionError" | "Blocked";
-  readonly cause: unknown;
-}> {
-  get message() {
-    return this.reason;
-  }
 }
 
 /**
@@ -127,3 +96,11 @@ export const make = <
     ),
   });
 };
+
+/**
+ * @since 1.0.0
+ * @category constructors
+ */
+export const makeEmpty: IndexedDbVersion = makeProto({
+  tables: HashMap.empty(),
+});

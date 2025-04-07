@@ -7,9 +7,8 @@ import { TypeIdError } from "@effect/platform/Error";
 import { Layer } from "effect";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as HashMap from "effect/HashMap";
 import { pipeArguments } from "effect/Pipeable";
-import type * as IndexedDbVersion from "./IndexedDbVersion.js";
+import * as IndexedDbMigration from "./IndexedDbMigration.js";
 
 /**
  * @since 1.0.0
@@ -44,7 +43,11 @@ export type ErrorTypeId = typeof ErrorTypeId;
  * @category errors
  */
 export class IndexedDbError extends TypeIdError(ErrorTypeId, "IndexedDbError")<{
-  readonly reason: "OpenError" | "TransactionError" | "Blocked";
+  readonly reason:
+    | "OpenError"
+    | "TransactionError"
+    | "Blocked"
+    | "UpgradeError";
   readonly cause: unknown;
 }> {
   get message() {
@@ -76,38 +79,6 @@ export declare namespace IndexedDb {
     readonly version: number;
     readonly database: IDBDatabase;
   }
-
-  // export interface Service<
-  //   out Id extends string,
-  //   in out DbVersion extends IndexedDbVersion.IndexedDbVersion.Any = never,
-  //   InitError = never
-  // > extends Pipeable {
-  //   new (_: never): {};
-
-  //   readonly [TypeId]: TypeId;
-  //   readonly identifier: Id;
-  //   readonly version: number;
-  //   readonly dbVersion: DbVersion;
-  //   readonly init: <R = never>(
-  //     db: DbVersion
-  //   ) => Effect.Effect<void, InitError, R>;
-  //   readonly migrations: [
-  //     version: number,
-  //     migration: <E, R = never>(
-  //       from: IndexedDbVersion.IndexedDbVersion.Any,
-  //       to: IndexedDbVersion.IndexedDbVersion.Any
-  //     ) => Effect.Effect<void, E, R>
-  //   ][];
-
-  //   readonly addVersion: <V1 extends DbVersion, V2 extends DbVersion, E>(
-  //     version: number,
-  //     options: {
-  //       from: V1;
-  //       to: V2;
-  //       migration: (from: V1, to: V2) => Effect.Effect<void, E>;
-  //     }
-  //   ) => IndexedDb.Service<Id, V2>;
-  // }
 
   /**
    * @since 1.0.0
@@ -151,25 +122,29 @@ const makeProto = <Id extends string>(options: {
  */
 export const layer = <
   Id extends string,
-  Source extends IndexedDbVersion.IndexedDbVersion.AnyWithProps
->({
-  identifier,
-  version,
-  source,
-}: {
-  identifier: Id;
-  version: number;
-  source: Source;
-}) =>
+  Migrations extends readonly IndexedDbMigration.IndexedDbMigration.Any[]
+>(
+  identifier: Id,
+  ...migrations: Migrations & {
+    0: IndexedDbMigration.IndexedDbMigration.Any;
+  }
+) =>
   Layer.effect(
     IndexedDb,
     Effect.gen(function* () {
+      const version = migrations.length;
       const database = yield* Effect.async<
         globalThis.IDBDatabase,
         IndexedDbError
       >((resume) => {
         console.log("Opening indexedDB", identifier, version);
         const request = window.indexedDB.open(identifier, version);
+
+        request.onblocked = (event) => {
+          resume(
+            Effect.fail(new IndexedDbError({ reason: "Blocked", cause: event }))
+          );
+        };
 
         request.onerror = (event) => {
           const idbRequest = event.target as IDBRequest<IDBDatabase>;
@@ -194,15 +169,22 @@ export const layer = <
         request.onupgradeneeded = (event) => {
           const idbRequest = event.target as IDBRequest<IDBDatabase>;
           const database = idbRequest.result;
-          const tables = HashMap.toValues(source.tables);
+          const transaction = idbRequest.transaction;
+          const oldVersion = event.oldVersion;
 
-          for (const table of tables) {
-            const request = database.createObjectStore(
-              table.tableName,
-              table.options
-            );
+          if (transaction !== null) {
+            transaction.onabort = (event) => {
+              resume(
+                Effect.fail(
+                  new IndexedDbError({
+                    reason: "Blocked",
+                    cause: event,
+                  })
+                )
+              );
+            };
 
-            request.transaction.onerror = (event) => {
+            transaction.onerror = (event) => {
               resume(
                 Effect.fail(
                   new IndexedDbError({
@@ -213,6 +195,22 @@ export const layer = <
               );
             };
           }
+
+          Effect.runSync(
+            Effect.all(
+              migrations.slice(oldVersion).map((untypedMigration) => {
+                const migration =
+                  untypedMigration as IndexedDbMigration.IndexedDbMigration.AnyWithProps;
+                return migration.execute(
+                  IndexedDbMigration.migrationApi(
+                    database,
+                    migration.fromVersion
+                  ),
+                  IndexedDbMigration.migrationApi(database, migration.toVersion)
+                );
+              })
+            )
+          );
         };
 
         request.onsuccess = (event) => {
