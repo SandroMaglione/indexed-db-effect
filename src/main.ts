@@ -1,4 +1,4 @@
-import { Effect, Layer, Schema } from "effect";
+import { Console, Effect, Layer, Schema } from "effect";
 import {
   IndexedDb,
   IndexedDbMigration,
@@ -47,26 +47,43 @@ const Table2_2 = IndexedDbTable.make(
   { keyPath: "nameAndAge" }
 );
 
-const CurrentDb = IndexedDbVersion.make(Table1, Table2_2);
+const Db1 = IndexedDbVersion.make(Table1, Table2_1);
+const Db2 = IndexedDbVersion.make(Table1, Table2_2);
 
 const Migration1 = IndexedDbMigration.make({
   fromVersion: IndexedDbVersion.makeEmpty,
-  toVersion: CurrentDb,
+  toVersion: Db1,
   execute: (_, toQuery) =>
     Effect.gen(function* () {
+      yield* Console.log("Migration 1");
       yield* toQuery.createObjectStore("table1");
       yield* toQuery.createObjectStore("table2");
       yield* toQuery.insert("table1", { id: "1", value: 1 });
+      yield* toQuery.insertAll("table2", [
+        { name: "John", age: 30 },
+        { name: "Jane", age: 25 },
+      ]);
+      yield* Console.log("Migration 1 done");
     }),
 });
 
 const Migration2 = IndexedDbMigration.make({
-  fromVersion: CurrentDb,
-  toVersion: CurrentDb,
+  fromVersion: Db1,
+  toVersion: Db2,
   execute: (fromQuery, toQuery) =>
     Effect.gen(function* () {
-      const data = yield* fromQuery.getAll("table1");
+      yield* Console.log("Migration 2");
+      const data = yield* fromQuery.getAll("table2");
       yield* Effect.log(data);
+      yield* fromQuery.deleteObjectStore("table2");
+      yield* toQuery.createObjectStore("table2");
+      yield* toQuery.insertAll(
+        "table2",
+        data.map((d) => ({
+          nameAndAge: `${d.name} ${d.age}`,
+        }))
+      );
+      yield* Console.log("Migration 2 done");
     }),
 });
 
@@ -76,7 +93,7 @@ const layer = IndexedDbQuery.layer.pipe(
 
 export const main = Effect.gen(function* () {
   const { makeApi } = yield* IndexedDbQuery.IndexedDbApi;
-  const api = makeApi(CurrentDb);
+  const api = makeApi(Db2);
   const key = yield* api.insert("table1", {
     id: "2",
     value: 2,

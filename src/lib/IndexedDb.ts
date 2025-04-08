@@ -127,7 +127,71 @@ export const migrationApi = <
   transaction: IDBTransaction,
   source: Source
 ): IndexedDbMigration.MigrationApi<Source> => {
+  const insert = <
+    A extends IndexedDbTable.IndexedDbTable.TableName<
+      IndexedDbVersion.IndexedDbVersion.Tables<Source>
+    >
+  >(
+    table: A,
+    data: Schema.Schema.Encoded<
+      IndexedDbTable.IndexedDbTable.TableSchema<
+        IndexedDbTable.IndexedDbTable.WithName<
+          IndexedDbVersion.IndexedDbVersion.Tables<Source>,
+          A
+        >
+      >
+    >
+  ) =>
+    Effect.gen(function* () {
+      const { tableSchema } = yield* HashMap.get(source.tables, table).pipe(
+        Effect.catchTag(
+          "NoSuchElementException",
+          () =>
+            new IndexedDbError({
+              reason: "TransactionError",
+              cause: null,
+            })
+        )
+      );
+
+      yield* Schema.decodeUnknown(tableSchema)(data).pipe(
+        Effect.catchTag("ParseError", (error) => {
+          console.error("ParseError", error);
+          return new IndexedDbError({
+            reason: "TransactionError",
+            cause: error,
+          });
+        })
+      );
+
+      return yield* Effect.async<globalThis.IDBValidKey, IndexedDbError>(
+        (resume) => {
+          const objectStore = transaction.objectStore(table);
+          const request = objectStore.add(data);
+
+          request.onerror = (event) => {
+            resume(
+              Effect.fail(
+                new IndexedDbError({
+                  reason: "TransactionError",
+                  cause: event,
+                })
+              )
+            );
+          };
+
+          request.onsuccess = (_) => {
+            resume(Effect.succeed(request.result));
+          };
+        }
+      );
+    }).pipe(Effect.orDie);
+
   return {
+    insert,
+    insertAll: (table, dataList) =>
+      Effect.all(dataList.map((data) => insert(table, data))),
+
     createObjectStore: (table) =>
       Effect.gen(function* () {
         const createTable = HashMap.unsafeGet(source.tables, table);
@@ -196,27 +260,6 @@ export const migrationApi = <
             });
           })
         );
-      }).pipe(Effect.orDie),
-
-    insert: (table, data) =>
-      Effect.async<globalThis.IDBValidKey, IndexedDbError>((resume) => {
-        const objectStore = transaction.objectStore(table);
-        const request = objectStore.add(data);
-
-        request.onerror = (event) => {
-          resume(
-            Effect.fail(
-              new IndexedDbError({
-                reason: "TransactionError",
-                cause: event,
-              })
-            )
-          );
-        };
-
-        request.onsuccess = (_) => {
-          resume(Effect.succeed(request.result));
-        };
       }).pipe(Effect.orDie),
   };
 };
@@ -301,7 +344,7 @@ export const layer = <
               );
             };
 
-            for (const untypedMigration of migrations.slice(oldVersion)) {
+            migrations.slice(oldVersion).reduce((prev, untypedMigration) => {
               const migration =
                 untypedMigration as IndexedDbMigration.IndexedDbMigration.AnyWithProps;
               const fromApi = migrationApi(
@@ -315,20 +358,22 @@ export const layer = <
                 migration.toVersion
               );
 
-              Effect.runPromise(migration.execute(fromApi, toApi)).catch(
-                (cause) => {
-                  console.error("Error during migration", cause);
-                  resume(
-                    Effect.fail(
-                      new IndexedDbError({
-                        reason: "UpgradeError",
-                        cause,
-                      })
-                    )
-                  );
-                }
+              return prev.then(() =>
+                Effect.runPromise(migration.execute(fromApi, toApi)).catch(
+                  (cause) => {
+                    console.error("Error during migration", cause);
+                    resume(
+                      Effect.fail(
+                        new IndexedDbError({
+                          reason: "UpgradeError",
+                          cause,
+                        })
+                      )
+                    );
+                  }
+                )
               );
-            }
+            }, Promise.resolve());
           }
         };
 

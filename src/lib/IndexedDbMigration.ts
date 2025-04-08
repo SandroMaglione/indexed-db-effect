@@ -74,6 +74,22 @@ export interface MigrationApi<
       >
     >
   ) => Effect.Effect<globalThis.IDBValidKey>;
+
+  readonly insertAll: <
+    A extends IndexedDbTable.IndexedDbTable.TableName<
+      IndexedDbVersion.IndexedDbVersion.Tables<Source>
+    >
+  >(
+    table: A,
+    dataList: Schema.Schema.Encoded<
+      IndexedDbTable.IndexedDbTable.TableSchema<
+        IndexedDbTable.IndexedDbTable.WithName<
+          IndexedDbVersion.IndexedDbVersion.Tables<Source>,
+          A
+        >
+      >
+    >[]
+  ) => Effect.Effect<globalThis.IDBValidKey>;
 }
 
 /**
