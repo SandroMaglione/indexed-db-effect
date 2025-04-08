@@ -4,8 +4,8 @@
  * @since 1.0.0
  */
 import * as Effect from "effect/Effect";
-import * as HashMap from "effect/HashMap";
 import { type Pipeable, pipeArguments } from "effect/Pipeable";
+import * as Schema from "effect/Schema";
 import type * as IndexedDbTable from "./IndexedDbTable.js";
 import type * as IndexedDbVersion from "./IndexedDbVersion.js";
 
@@ -23,7 +23,7 @@ export const TypeId: unique symbol = Symbol.for(
  */
 export type TypeId = typeof TypeId;
 
-interface MigrationApi<
+export interface MigrationApi<
   Source extends IndexedDbVersion.IndexedDbVersion.AnyWithProps
 > {
   readonly createObjectStore: <
@@ -41,30 +41,40 @@ interface MigrationApi<
   >(
     table: A
   ) => Effect.Effect<void>;
-}
 
-export const migrationApi = <
-  Source extends IndexedDbVersion.IndexedDbVersion.AnyWithProps
->(
-  database: IDBDatabase,
-  source: Source
-): MigrationApi<Source> => {
-  return {
-    createObjectStore: (table) =>
-      Effect.gen(function* () {
-        const createTable = HashMap.unsafeGet(source.tables, table);
-        return database.createObjectStore(
-          createTable.tableName,
-          createTable.options
-        );
-      }),
-    deleteObjectStore: (table) =>
-      Effect.gen(function* () {
-        const createTable = HashMap.unsafeGet(source.tables, table);
-        return database.deleteObjectStore(createTable.tableName);
-      }),
-  };
-};
+  readonly getAll: <
+    A extends IndexedDbTable.IndexedDbTable.TableName<
+      IndexedDbVersion.IndexedDbVersion.Tables<Source>
+    >
+  >(
+    table: A
+  ) => Effect.Effect<
+    Schema.Schema.Type<
+      IndexedDbTable.IndexedDbTable.TableSchema<
+        IndexedDbTable.IndexedDbTable.WithName<
+          IndexedDbVersion.IndexedDbVersion.Tables<Source>,
+          A
+        >
+      >
+    >[]
+  >;
+
+  readonly insert: <
+    A extends IndexedDbTable.IndexedDbTable.TableName<
+      IndexedDbVersion.IndexedDbVersion.Tables<Source>
+    >
+  >(
+    table: A,
+    data: Schema.Schema.Encoded<
+      IndexedDbTable.IndexedDbTable.TableSchema<
+        IndexedDbTable.IndexedDbTable.WithName<
+          IndexedDbVersion.IndexedDbVersion.Tables<Source>,
+          A
+        >
+      >
+    >
+  ) => Effect.Effect<globalThis.IDBValidKey>;
+}
 
 /**
  * @since 1.0.0

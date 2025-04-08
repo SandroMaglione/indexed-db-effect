@@ -24,7 +24,7 @@ If you need to change an existing object store (e.g., to change the keyPath), th
 const Table1 = IndexedDbTable.make(
   "table1",
   Schema.Struct({
-    id: Schema.UUID,
+    id: Schema.String,
     value: Schema.Number,
   }),
   { keyPath: "id" }
@@ -56,16 +56,17 @@ const Migration1 = IndexedDbMigration.make({
     Effect.gen(function* () {
       yield* toQuery.createObjectStore("table1");
       yield* toQuery.createObjectStore("table2");
-      // yield* toQuery.insert("table1", { id: "1", value: 1 });
+      yield* toQuery.insert("table1", { id: "1", value: 1 });
     }),
 });
 
 const Migration2 = IndexedDbMigration.make({
   fromVersion: CurrentDb,
   toVersion: CurrentDb,
-  execute: (_, toQuery) =>
+  execute: (fromQuery, toQuery) =>
     Effect.gen(function* () {
-      yield* toQuery.deleteObjectStore("table2");
+      const data = yield* fromQuery.getAll("table1");
+      yield* Effect.log(data);
     }),
 });
 

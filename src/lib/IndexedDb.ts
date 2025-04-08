@@ -7,8 +7,12 @@ import { TypeIdError } from "@effect/platform/Error";
 import { Layer } from "effect";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as HashMap from "effect/HashMap";
 import { pipeArguments } from "effect/Pipeable";
+import * as Schema from "effect/Schema";
 import * as IndexedDbMigration from "./IndexedDbMigration.js";
+import * as IndexedDbTable from "./IndexedDbTable.js";
+import * as IndexedDbVersion from "./IndexedDbVersion.js";
 
 /**
  * @since 1.0.0
@@ -116,6 +120,107 @@ const makeProto = <Id extends string>(options: {
   return IndexedDb as any;
 };
 
+export const migrationApi = <
+  Source extends IndexedDbVersion.IndexedDbVersion.AnyWithProps
+>(
+  database: IDBDatabase,
+  transaction: IDBTransaction,
+  source: Source
+): IndexedDbMigration.MigrationApi<Source> => {
+  return {
+    createObjectStore: (table) =>
+      Effect.gen(function* () {
+        const createTable = HashMap.unsafeGet(source.tables, table);
+        return database.createObjectStore(
+          createTable.tableName,
+          createTable.options
+        );
+      }),
+
+    deleteObjectStore: (table) =>
+      Effect.gen(function* () {
+        const createTable = HashMap.unsafeGet(source.tables, table);
+        return database.deleteObjectStore(createTable.tableName);
+      }),
+
+    getAll: (table) =>
+      Effect.gen(function* () {
+        const { tableName, tableSchema } = yield* HashMap.get(
+          source.tables,
+          table
+        ).pipe(
+          Effect.catchTag(
+            "NoSuchElementException",
+            () =>
+              new IndexedDbError({
+                reason: "TransactionError",
+                cause: null,
+              })
+          )
+        );
+
+        const data = yield* Effect.async<any, IndexedDbError>((resume) => {
+          const store = transaction.objectStore(tableName);
+          const request = store.getAll();
+
+          request.onerror = (event) => {
+            resume(
+              Effect.fail(
+                new IndexedDbError({ reason: "TransactionError", cause: event })
+              )
+            );
+          };
+
+          request.onsuccess = () => {
+            resume(Effect.succeed(request.result));
+          };
+        });
+
+        const tableSchemaArray = Schema.Array(
+          tableSchema
+        ) as unknown as IndexedDbTable.IndexedDbTable.TableSchema<
+          IndexedDbTable.IndexedDbTable.WithName<
+            IndexedDbVersion.IndexedDbVersion.Tables<Source>,
+            typeof tableName
+          >
+        >;
+
+        console.log("getAll", tableName, tableSchema, data);
+
+        return yield* Schema.decodeUnknown(tableSchemaArray)(data).pipe(
+          Effect.catchTag("ParseError", (error) => {
+            console.error("ParseError", error);
+            return new IndexedDbError({
+              reason: "TransactionError",
+              cause: error,
+            });
+          })
+        );
+      }).pipe(Effect.orDie),
+
+    insert: (table, data) =>
+      Effect.async<globalThis.IDBValidKey, IndexedDbError>((resume) => {
+        const objectStore = transaction.objectStore(table);
+        const request = objectStore.add(data);
+
+        request.onerror = (event) => {
+          resume(
+            Effect.fail(
+              new IndexedDbError({
+                reason: "TransactionError",
+                cause: event,
+              })
+            )
+          );
+        };
+
+        request.onsuccess = (_) => {
+          resume(Effect.succeed(request.result));
+        };
+      }).pipe(Effect.orDie),
+  };
+};
+
 /**
  * @since 1.0.0
  * @category constructors
@@ -132,6 +237,7 @@ export const layer = <
   Layer.effect(
     IndexedDb,
     Effect.gen(function* () {
+      let oldVersion = 0;
       const version = migrations.length;
       const database = yield* Effect.async<
         globalThis.IDBDatabase,
@@ -159,20 +265,20 @@ export const layer = <
           );
         };
 
-        request.onblocked = (event) => {
-          resume(
-            Effect.fail(new IndexedDbError({ reason: "Blocked", cause: event }))
-          );
-        };
-
         // If `onupgradeneeded` exits successfully, `onsuccess` will then be triggered
         request.onupgradeneeded = (event) => {
           const idbRequest = event.target as IDBRequest<IDBDatabase>;
           const database = idbRequest.result;
           const transaction = idbRequest.transaction;
-          const oldVersion = event.oldVersion;
+          oldVersion = event.oldVersion;
 
-          if (transaction !== null) {
+          if (transaction === null) {
+            resume(
+              Effect.fail(
+                new IndexedDbError({ reason: "TransactionError", cause: null })
+              )
+            );
+          } else {
             transaction.onabort = (event) => {
               resume(
                 Effect.fail(
@@ -194,23 +300,36 @@ export const layer = <
                 )
               );
             };
-          }
 
-          Effect.runSync(
-            Effect.all(
-              migrations.slice(oldVersion).map((untypedMigration) => {
-                const migration =
-                  untypedMigration as IndexedDbMigration.IndexedDbMigration.AnyWithProps;
-                return migration.execute(
-                  IndexedDbMigration.migrationApi(
-                    database,
-                    migration.fromVersion
-                  ),
-                  IndexedDbMigration.migrationApi(database, migration.toVersion)
-                );
-              })
-            )
-          );
+            for (const untypedMigration of migrations.slice(oldVersion)) {
+              const migration =
+                untypedMigration as IndexedDbMigration.IndexedDbMigration.AnyWithProps;
+              const fromApi = migrationApi(
+                database,
+                transaction,
+                migration.fromVersion
+              );
+              const toApi = migrationApi(
+                database,
+                transaction,
+                migration.toVersion
+              );
+
+              Effect.runPromise(migration.execute(fromApi, toApi)).catch(
+                (cause) => {
+                  console.error("Error during migration", cause);
+                  resume(
+                    Effect.fail(
+                      new IndexedDbError({
+                        reason: "UpgradeError",
+                        cause,
+                      })
+                    )
+                  );
+                }
+              );
+            }
+          }
         };
 
         request.onsuccess = (event) => {
