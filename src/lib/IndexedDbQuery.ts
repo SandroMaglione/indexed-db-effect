@@ -10,7 +10,7 @@ import * as HashMap from "effect/HashMap";
 import * as Layer from "effect/Layer";
 import { type Pipeable, pipeArguments } from "effect/Pipeable";
 import * as Schema from "effect/Schema";
-import * as IndexedDb from "./IndexedDb.js";
+import * as IndexedDb from "./IndexedDbDatabase.js";
 import type * as IndexedDbTable from "./IndexedDbTable.js";
 import type * as IndexedDbVersion from "./IndexedDbVersion.js";
 
@@ -91,7 +91,7 @@ export declare namespace IndexedDbQuery {
       >
     ) => Effect.Effect<
       globalThis.IDBValidKey,
-      IndexedDbQueryError | IndexedDb.IndexedDbError
+      IndexedDbQueryError | IndexedDb.IndexedDbDatabaseError
     >;
 
     readonly create: <
@@ -100,7 +100,10 @@ export declare namespace IndexedDbQuery {
       >
     >(
       table: A
-    ) => Effect.Effect<void, IndexedDbQueryError | IndexedDb.IndexedDbError>;
+    ) => Effect.Effect<
+      void,
+      IndexedDbQueryError | IndexedDb.IndexedDbDatabaseError
+    >;
   }
 
   /**
@@ -137,7 +140,7 @@ const makeProto = <
     data: any
   ): Effect.Effect<
     globalThis.IDBValidKey,
-    IndexedDbQueryError | IndexedDb.IndexedDbError
+    IndexedDbQueryError | IndexedDb.IndexedDbDatabaseError
   > =>
     Effect.async<globalThis.IDBValidKey, IndexedDbQueryError>((resume) => {
       const transaction = database.transaction([table], "readwrite");
@@ -162,7 +165,10 @@ const makeProto = <
 
   IndexedDbQuery.create = (
     table: string
-  ): Effect.Effect<void, IndexedDbQueryError | IndexedDb.IndexedDbError> =>
+  ): Effect.Effect<
+    void,
+    IndexedDbQueryError | IndexedDb.IndexedDbDatabaseError
+  > =>
     Effect.async<void, IndexedDbQueryError>((resume) => {
       const createTable = HashMap.unsafeGet(source.tables, table);
 
@@ -213,7 +219,7 @@ export const makeApi = <
 export const layer = Layer.effect(
   IndexedDbApi,
   Effect.gen(function* () {
-    const { database } = yield* IndexedDb.IndexedDb;
+    const { database } = yield* IndexedDb.IndexedDbDatabase;
     return IndexedDbApi.of({ makeApi: (source) => makeApi(database, source) });
   })
 );

@@ -81,7 +81,7 @@ export interface MigrationApi<
     >
   >(
     table: A,
-    dataList: Schema.Schema.Encoded<
+    dataList: readonly Schema.Schema.Encoded<
       IndexedDbTable.IndexedDbTable.TableSchema<
         IndexedDbTable.IndexedDbTable.WithName<
           IndexedDbVersion.IndexedDbVersion.Tables<Source>,

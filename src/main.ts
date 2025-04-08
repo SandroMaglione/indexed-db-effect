@@ -1,6 +1,13 @@
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "@effect/platform";
 import { Console, Effect, Layer, Schema } from "effect";
 import {
   IndexedDb,
+  IndexedDbDatabase,
   IndexedDbMigration,
   IndexedDbQuery,
   IndexedDbTable,
@@ -21,82 +28,100 @@ If you need to change an existing object store (e.g., to change the keyPath), th
  * 3. What if a keyPath changes, and the old data doesn't match the new keyPath?
  */
 
-const Table1 = IndexedDbTable.make(
-  "table1",
-  Schema.Struct({
-    id: Schema.String,
-    value: Schema.Number,
-  }),
-  { keyPath: "id" }
-);
-
-const Table2_1 = IndexedDbTable.make(
-  "table2",
-  Schema.Struct({
-    name: Schema.String,
-    age: Schema.Number,
-  }),
-  { keyPath: "name" }
-);
-
-const Table2_2 = IndexedDbTable.make(
-  "table2",
-  Schema.Struct({
-    nameAndAge: Schema.String,
-  }),
-  { keyPath: "nameAndAge" }
-);
-
-const Db1 = IndexedDbVersion.make(Table1, Table2_1);
-const Db2 = IndexedDbVersion.make(Table1, Table2_2);
-
-const Migration1 = IndexedDbMigration.make({
-  fromVersion: IndexedDbVersion.makeEmpty,
-  toVersion: Db1,
-  execute: (_, toQuery) =>
-    Effect.gen(function* () {
-      yield* Console.log("Migration 1");
-      yield* toQuery.createObjectStore("table1");
-      yield* toQuery.createObjectStore("table2");
-      yield* toQuery.insert("table1", { id: "1", value: 1 });
-      yield* toQuery.insertAll("table2", [
-        { name: "John", age: 30 },
-        { name: "Jane", age: 25 },
-      ]);
-      yield* Console.log("Migration 1 done");
-    }),
+const Todo = Schema.Struct({
+  id: Schema.Number,
+  userId: Schema.Number,
+  title: Schema.String,
+  completed: Schema.Boolean,
 });
 
-const Migration2 = IndexedDbMigration.make({
-  fromVersion: Db1,
-  toVersion: Db2,
-  execute: (fromQuery, toQuery) =>
-    Effect.gen(function* () {
-      yield* Console.log("Migration 2");
-      const data = yield* fromQuery.getAll("table2");
-      yield* Effect.log(data);
-      yield* fromQuery.deleteObjectStore("table2");
-      yield* toQuery.createObjectStore("table2");
-      yield* toQuery.insertAll(
-        "table2",
-        data.map((d) => ({
-          nameAndAge: `${d.name} ${d.age}`,
-        }))
-      );
-      yield* Console.log("Migration 2 done");
-    }),
-});
+const Table1 = IndexedDbTable.make("todo", Todo, { keyPath: "id" });
+
+const Table2 = IndexedDbTable.make(
+  "todo",
+  Schema.Struct({
+    ...Todo.fields,
+    newId: Schema.UUID,
+  }),
+  { keyPath: "newId" }
+);
+
+const Db1 = IndexedDbVersion.make(Table1);
+const Db2 = IndexedDbVersion.make(Table2);
 
 const layer = IndexedDbQuery.layer.pipe(
-  Layer.provide(IndexedDb.layer("db", Migration1, Migration2))
+  Layer.provide(
+    Layer.unwrapEffect(
+      Effect.gen(function* () {
+        const baseClient = yield* HttpClient.HttpClient;
+        const request = HttpClientRequest.get(
+          "https://jsonplaceholder.typicode.com/todos"
+        ).pipe(HttpClientRequest.acceptJson);
+
+        const data = yield* baseClient.execute(request).pipe(
+          Effect.flatMap(
+            HttpClientResponse.schemaBodyJson(
+              Schema.Array(
+                Schema.Struct({
+                  userId: Schema.Number,
+                  id: Schema.Number,
+                  title: Schema.String,
+                  completed: Schema.Boolean,
+                })
+              )
+            )
+          )
+        );
+
+        return IndexedDbDatabase.layer(
+          "db",
+          IndexedDbMigration.make({
+            fromVersion: IndexedDbVersion.makeEmpty,
+            toVersion: Db1,
+            execute: (_, toQuery) =>
+              Effect.gen(function* () {
+                yield* Console.log("Migration 1");
+                yield* toQuery.createObjectStore("todo");
+                yield* toQuery.insertAll("todo", data);
+                yield* Console.log("Migration 1 done");
+              }),
+          }),
+          IndexedDbMigration.make({
+            fromVersion: Db1,
+            toVersion: Db2,
+            execute: (fromQuery, toQuery) =>
+              Effect.gen(function* () {
+                yield* Console.log("Migration 2");
+                const data = yield* fromQuery.getAll("todo");
+                yield* Effect.log(data);
+                yield* fromQuery.deleteObjectStore("todo");
+                yield* toQuery.createObjectStore("todo");
+                yield* toQuery.insertAll(
+                  "todo",
+                  data.map((d) => ({
+                    ...d,
+                    newId: crypto.randomUUID(),
+                  }))
+                );
+                yield* Console.log("Migration 2 done");
+              }),
+          })
+        );
+      })
+    )
+  ),
+  Layer.provide([FetchHttpClient.layer, IndexedDb.layerWindow])
 );
 
 export const main = Effect.gen(function* () {
   const { makeApi } = yield* IndexedDbQuery.IndexedDbApi;
   const api = makeApi(Db2);
-  const key = yield* api.insert("table1", {
-    id: "2",
-    value: 2,
+  const key = yield* api.insert("todo", {
+    id: 2,
+    userId: 1,
+    title: "et porro tempora",
+    completed: true,
+    newId: crypto.randomUUID(),
   });
   yield* Effect.log(key);
 }).pipe(Effect.provide(layer));
